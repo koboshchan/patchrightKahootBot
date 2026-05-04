@@ -194,15 +194,31 @@ async def run_session(
             session["clients"][client_idx]["status"] = "Joining"
             await update_status_message(session_id, context)
 
+            screenshot_path = f"/tmp/error_screenshot_{session_id}.png" if client_idx == 0 else None
             try:
                 if game_class.use_custom_run_client:
                     await game_class.run_client(pin, browser, **custom_kwargs)
                 else:
-                    await main.run_client(pin, browser, game_class)
+                    await main.run_client(pin, browser, game_class, screenshot_path=screenshot_path)
                 session["clients"][client_idx]["status"] = "Joined ✅"
             except Exception as e:
-                session["clients"][client_idx]["status"] = f"Error ❌"
+                session["clients"][client_idx]["status"] = "Error ❌"
                 logger.error(f"Client {client_idx} failed: {e}")
+                if client_idx == 0 and screenshot_path:
+                    import os
+                    if os.path.exists(screenshot_path):
+                        try:
+                            with open(screenshot_path, "rb") as f:
+                                await context.bot.send_photo(
+                                    chat_id=chat_id,
+                                    photo=f,
+                                    caption=f"❌ Client 0 error:\n<code>{str(e)[:900]}</code>",
+                                    parse_mode="HTML",
+                                )
+                        except Exception as send_err:
+                            logger.error(f"Failed to send error screenshot: {send_err}")
+                        finally:
+                            os.remove(screenshot_path)
 
             await update_status_message(session_id, context)
 

@@ -12,14 +12,14 @@ def generate_hex_string(length):
     return "".join(random.choices(string.hexdigits, k=length)).lower()
 
 
-async def run_client(join_code, browser, game_config=None):
+async def run_client(join_code, browser, game_config=None, screenshot_path=None):
     if game_config is None:
         global game
         game_config = game
     page = None
     try:
         page = await browser.new_page()
-        await page.goto(game_config.uri)
+        await page.goto(game_config.uri, wait_until="domcontentloaded", timeout=60000)
 
         await page.wait_for_selector(
             f"xpath={game_config.code_input_xpath}", timeout=60000
@@ -73,9 +73,14 @@ async def run_client(join_code, browser, game_config=None):
 
     except Exception as e:
         print(f"An error occurred in a client: {e}")
-        # Optionally close the page if an error occurs to free up resources
         if page and not page.is_closed():
+            if screenshot_path:
+                try:
+                    await page.screenshot(path=screenshot_path, full_page=False)
+                except Exception:
+                    pass
             await page.close()
+        raise
 
 
 async def main():
@@ -116,6 +121,8 @@ async def main():
     async with async_playwright() as p:
         browser = await p.chromium.launch(
             args=[
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
                 "--use-fake-ui-for-media-stream",
                 "--allow-http-screen-capture",
                 "--enable-usermedia-screen-capturing",
