@@ -21,7 +21,7 @@ WORKDIR /app
 
 COPY --from=builder /install /install
 
-RUN PYTHONPATH=/install/lib/python3.12/site-packages patchright install --with-deps chromium-headless-shell
+RUN PYTHONPATH=/install/lib/python3.12/site-packages /install/bin/patchright install --with-deps chromium-headless-shell
 
 COPY . .
 
