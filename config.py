@@ -32,12 +32,10 @@ class BaseGameConfig:
 
 class Kahoot(BaseGameConfig):
     uri = "https://kahoot.it"
-    code_input_xpath = '//*[@id="game-input"]'
-    submit_code_button_selector = "xpath=/html/body/div/div[1]/div/div/div[1]/div/div[2]/div[2]/main/div/form/button"
-    nickname_input_xpath = '//*[@id="nickname"]'
-    submit_nickname_button_selector = (
-        "xpath=/html/body/div/div[1]/div/div/div[1]/div/div[2]/main/div/form/button"
-    )
+    code_input_xpath = '//*[@data-functional-selector="game-pin-input"]'
+    submit_code_button_selector = '[data-functional-selector="join-game-pin"]'
+    nickname_input_xpath = '//*[@data-functional-selector="username-input"]'
+    submit_nickname_button_selector = '[data-functional-selector="join-button-username"]'
 
 
 class MyShortAnswer(BaseGameConfig):
