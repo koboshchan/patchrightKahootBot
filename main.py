@@ -19,9 +19,14 @@ async def run_client(join_code, browser, game_config=None, screenshot_path=None)
     page = None
     try:
         page = await browser.new_page()
-        await page.goto(game_config.uri, wait_until="domcontentloaded", timeout=60000)
-
-        await page.wait_for_selector(
+        await page.route(
+            "**/*",
+            lambda route: (
+                route.abort()
+                if route.request.resource_type in ("image", "media", "font")
+                else route.continue_()
+            ),
+        )
             f"xpath={game_config.code_input_xpath}", timeout=60000
         )
         await page.locator(f"xpath={game_config.code_input_xpath}").fill(join_code)
