@@ -27,6 +27,9 @@ async def run_client(join_code, browser, game_config=None, screenshot_path=None)
                 else route.continue_()
             ),
         )
+        await page.goto(game_config.uri, wait_until="commit", timeout=60000)
+
+        await page.wait_for_selector(
             f"xpath={game_config.code_input_xpath}", timeout=60000
         )
         await page.locator(f"xpath={game_config.code_input_xpath}").fill(join_code)
