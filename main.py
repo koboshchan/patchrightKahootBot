@@ -123,6 +123,7 @@ async def main():
             args=[
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
+                "--disk-cache-dir=/tmp/chrome-cache",
                 "--use-fake-ui-for-media-stream",
                 "--allow-http-screen-capture",
                 "--enable-usermedia-screen-capturing",
