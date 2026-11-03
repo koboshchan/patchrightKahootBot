@@ -34,7 +34,23 @@ admins = {ADMIN_USERNAME} if ADMIN_USERNAME else set()
 sessions = {}
 
 # States
-SELECTING_GAME, ENTERING_CUSTOM_KWARGS, ENTERING_PIN, ENTERING_CLIENTS = range(4)
+SELECTING_GAME, ENTERING_CUSTOM_KWARGS, ENTERING_PIN, ENTERING_CLIENTS, ENTERING_SCREEN_CLIENT = range(5)
+
+
+class ClientBrowser:
+    """Wraps the shared browser so we know which pages each client opened."""
+
+    def __init__(self, browser):
+        self._browser = browser
+        self.pages = []
+
+    async def new_page(self, *args, **kwargs):
+        page = await self._browser.new_page(*args, **kwargs)
+        self.pages.append(page)
+        return page
+
+    def __getattr__(self, name):
+        return getattr(self._browser, name)
 
 
 def is_admin(username):
@@ -195,14 +211,16 @@ async def run_session(
 
         async def run_one_client(client_idx):
             session["clients"][client_idx]["status"] = "Joining"
+            client_browser = ClientBrowser(browser)
+            session["clients"][client_idx]["browser"] = client_browser
             await update_status_message(session_id, context)
 
             screenshot_path = f"/tmp/error_screenshot_{session_id}.png" if client_idx == 0 else None
             try:
                 if game_class.use_custom_run_client:
-                    await game_class.run_client(pin, browser, **custom_kwargs)
+                    await game_class.run_client(pin, client_browser, **custom_kwargs)
                 else:
-                    await main.run_client(pin, browser, game_class, screenshot_path=screenshot_path)
+                    await main.run_client(pin, client_browser, game_class, screenshot_path=screenshot_path)
                 session["clients"][client_idx]["status"] = "Joined ✅"
             except Exception as e:
                 session["clients"][client_idx]["status"] = "Error ❌"
@@ -287,9 +305,14 @@ def get_status_markup(session_id):
     keyboard = [
         [
             InlineKeyboardButton(
+                "📸 Send Screen", callback_data=f"screen_{session_id}"
+            )
+        ],
+        [
+            InlineKeyboardButton(
                 "🛑 Close All Clients", callback_data=f"close_{session_id}"
             )
-        ]
+        ],
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -348,6 +371,61 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await close_session(session_id, context)
 
 
+async def screen_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(update.effective_user.username):
+        return ConversationHandler.END
+    session_id = query.data.split("_", 1)[1]
+    if session_id not in sessions:
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id, text="Session not found or already closed."
+        )
+        return ConversationHandler.END
+    context.user_data["screen_session"] = session_id
+    n = sessions[session_id]["num_clients"]
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text=f"Enter the client ID (1-{n}):",
+    )
+    return ENTERING_SCREEN_CLIENT
+
+
+async def screen_client_entered(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    session_id = context.user_data.get("screen_session")
+    session = sessions.get(session_id)
+    if not session:
+        await update.message.reply_text("Session not found or already closed.")
+        return ConversationHandler.END
+    try:
+        client_num = int(update.message.text.strip())
+    except ValueError:
+        await update.message.reply_text("Please enter a valid number.")
+        return ENTERING_SCREEN_CLIENT
+    if not 1 <= client_num <= session["num_clients"]:
+        await update.message.reply_text(
+            f"Client ID must be between 1 and {session['num_clients']}."
+        )
+        return ENTERING_SCREEN_CLIENT
+
+    client = session["clients"][client_num - 1]
+    client_browser = client.get("browser")
+    pages = [pg for pg in (client_browser.pages if client_browser else []) if not pg.is_closed()]
+    if not pages:
+        await update.message.reply_text(f"Client {client_num} has no open page.")
+        return ConversationHandler.END
+    try:
+        png = await pages[-1].screenshot()
+        await update.message.reply_photo(
+            photo=png,
+            caption=f"📸 Client {client_num}: {client['status']}",
+        )
+    except Exception as e:
+        logger.error(f"Screenshot failed for client {client_num}: {e}")
+        await update.message.reply_text(f"Screenshot failed: {e}")
+    return ConversationHandler.END
+
+
 async def add_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if user.username.lower().replace("@", "") != ADMIN_USERNAME:
@@ -378,7 +456,9 @@ def main_bot():
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
-            SELECTING_GAME: [CallbackQueryHandler(game_selected)],
+            SELECTING_GAME: [
+                CallbackQueryHandler(game_selected, pattern="^(?!close_|screen_)")
+            ],
             ENTERING_CUSTOM_KWARGS: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, custom_kwarg_entered)
             ],
@@ -392,6 +472,17 @@ def main_bot():
         fallbacks=[CommandHandler("cancel", cancel)],
     )
 
+    screen_handler = ConversationHandler(
+        entry_points=[CallbackQueryHandler(screen_button, pattern="^screen_")],
+        states={
+            ENTERING_SCREEN_CLIENT: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, screen_client_entered)
+            ],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+    )
+
+    application.add_handler(screen_handler)
     application.add_handler(conv_handler)
     application.add_handler(CommandHandler("addadmin", add_admin))
     application.add_handler(CallbackQueryHandler(button_handler, pattern="^close_"))
