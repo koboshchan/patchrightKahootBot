@@ -1,4 +1,5 @@
 import os
+import json
 import asyncio
 import logging
 import time
@@ -24,7 +25,12 @@ logger = logging.getLogger(__name__)
 
 # Env vars
 TOKEN = os.getenv("TELEGRAM_TOKEN")
-AUTH_STATE = os.getenv("AUTH_STATE", "/app/auth/auth.json")
+AUTH_DIR = os.getenv("AUTH_DIR", "/app/auth/users")
+LOGIN_SCRIPT_URL = "https://github.com/koboshchan/patchrightKahootBot/blob/main/login.py"
+
+
+def user_auth_path(user_id):
+    return os.path.join(AUTH_DIR, f"{int(user_id)}.json")
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "").lower().replace("@", "")
 
 # Admin management
@@ -35,7 +41,7 @@ admins = {ADMIN_USERNAME} if ADMIN_USERNAME else set()
 sessions = {}
 
 # States
-SELECTING_GAME, ENTERING_CUSTOM_KWARGS, ENTERING_PIN, ENTERING_CLIENTS, ENTERING_SCREEN_CLIENT = range(5)
+SELECTING_GAME, ENTERING_CUSTOM_KWARGS, ENTERING_PIN, ENTERING_CLIENTS, ENTERING_SCREEN_CLIENT, UPLOADING_SESSION = range(6)
 
 
 class ClientBrowser:
@@ -157,6 +163,7 @@ async def clients_entered(update: Update, context: ContextTypes.DEFAULT_TYPE):
             update.effective_chat.id,
             context,
             custom_kwargs,
+            update.effective_user.id,
         )
     )
 
@@ -164,7 +171,7 @@ async def clients_entered(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def run_session(
-    session_id, game_name, pin, num_clients, chat_id, context, custom_kwargs=None
+    session_id, game_name, pin, num_clients, chat_id, context, custom_kwargs=None, user_id=None
 ):
     if custom_kwargs is None:
         custom_kwargs = {}
@@ -184,9 +191,10 @@ async def run_session(
             ]
         )
 
-        # Load saved logins (from login.py) if present
-        if os.path.exists(AUTH_STATE):
-            browser_ctx = await browser.new_context(storage_state=AUTH_STATE)
+        # Load this user's saved logins (uploaded via /setlogin) if present
+        auth_path = user_auth_path(user_id) if user_id is not None else None
+        if auth_path and os.path.exists(auth_path):
+            browser_ctx = await browser.new_context(storage_state=auth_path)
         else:
             browser_ctx = browser
 
@@ -449,6 +457,61 @@ async def add_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"Admin @{new_admin} added.")
 
 
+async def set_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.username):
+        await update.message.reply_text("You are not authorized to use this bot.")
+        return ConversationHandler.END
+    await update.message.reply_text(
+        "Send your session.json file (or /cancel).\n\n"
+        f"Make one with this script on your computer:\n{LOGIN_SCRIPT_URL}\n"
+        "Run it, log into your sites, press Enter, then upload the file here."
+    )
+    return UPLOADING_SESSION
+
+
+async def session_uploaded(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    doc = update.message.document
+    if doc.file_size and doc.file_size > 5 * 1024 * 1024:
+        await update.message.reply_text("File too big (max 5 MB).")
+        return UPLOADING_SESSION
+    data = await (await doc.get_file()).download_as_bytearray()
+    try:
+        state = json.loads(bytes(data))
+        assert isinstance(state, dict) and isinstance(state.get("cookies"), list)
+    except Exception:
+        await update.message.reply_text("That isn't a valid session.json. Try again or /cancel.")
+        return UPLOADING_SESSION
+    os.makedirs(AUTH_DIR, exist_ok=True)
+    path = user_auth_path(update.effective_user.id)
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(state, f)
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, path)
+    try:
+        await update.message.delete()  # don't leave cookies sitting in the chat
+    except Exception:
+        pass
+    await update.message.reply_text(
+        f"Saved ({len(state['cookies'])} cookies). Your next sessions will be logged in. /clearlogin to remove."
+    )
+    return ConversationHandler.END
+
+
+async def session_not_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Please send the session.json as a file, or /cancel.")
+    return UPLOADING_SESSION
+
+
+async def clear_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    path = user_auth_path(update.effective_user.id)
+    if os.path.exists(path):
+        os.remove(path)
+        await update.message.reply_text("Saved login removed.")
+    else:
+        await update.message.reply_text("You don't have a saved login.")
+
+
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Operation cancelled.")
     return ConversationHandler.END
@@ -490,6 +553,19 @@ def main_bot():
         fallbacks=[CommandHandler("cancel", cancel)],
     )
 
+    login_handler = ConversationHandler(
+        entry_points=[CommandHandler("setlogin", set_login)],
+        states={
+            UPLOADING_SESSION: [
+                MessageHandler(filters.Document.ALL, session_uploaded),
+                MessageHandler(filters.ALL & ~filters.COMMAND, session_not_file),
+            ],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+    )
+
+    application.add_handler(login_handler)
+    application.add_handler(CommandHandler("clearlogin", clear_login))
     application.add_handler(screen_handler)
     application.add_handler(conv_handler)
     application.add_handler(CommandHandler("addadmin", add_admin))

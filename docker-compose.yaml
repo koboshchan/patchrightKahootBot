@@ -9,4 +9,4 @@ services:
       - ADMIN_USERNAME=${ADMIN_USERNAME}
     restart: always
     volumes:
-      - ./auth:/app/auth:ro
+      - ./auth:/app/auth

@@ -8,3 +8,4 @@ package.json
 .conda
 
 auth/
+session.json

@@ -2,14 +2,14 @@
 
 Run on your PC:  python login.py
 A browser opens with Google and Kahoot tabs. Sign into whatever you need
-(open more tabs for other sites), then press Enter here. Saves auth/auth.json.
+(open more tabs for other sites), then press Enter here. Saves session.json; upload it to the bot with /setlogin.
 """
 import asyncio
 import os
 
 from patchright.async_api import async_playwright
 
-OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "auth", "auth.json")
+OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "session.json")
 SITES = ["https://accounts.google.com/", "https://kahoot.it/"]
 
 
