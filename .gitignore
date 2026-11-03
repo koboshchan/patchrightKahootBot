@@ -6,3 +6,5 @@ package.json
 .DS_Store
 .vscode
 .conda
+
+auth/

@@ -8,3 +8,5 @@ services:
       - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
       - ADMIN_USERNAME=${ADMIN_USERNAME}
     restart: always
+    volumes:
+      - ./auth:/app/auth:ro

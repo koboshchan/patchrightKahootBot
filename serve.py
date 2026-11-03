@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 # Env vars
 TOKEN = os.getenv("TELEGRAM_TOKEN")
+AUTH_STATE = os.getenv("AUTH_STATE", "/app/auth/auth.json")
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "").lower().replace("@", "")
 
 # Admin management
@@ -183,9 +184,16 @@ async def run_session(
             ]
         )
 
+        # Load saved logins (from login.py) if present
+        if os.path.exists(AUTH_STATE):
+            browser_ctx = await browser.new_context(storage_state=AUTH_STATE)
+        else:
+            browser_ctx = browser
+
         session = {
             "playwright": p,
             "browser": browser,
+            "browser_ctx": browser_ctx,
             "game_name": game_name,
             "pin": pin,
             "num_clients": num_clients,
@@ -211,7 +219,7 @@ async def run_session(
 
         async def run_one_client(client_idx):
             session["clients"][client_idx]["status"] = "Joining"
-            client_browser = ClientBrowser(browser)
+            client_browser = ClientBrowser(browser_ctx)
             session["clients"][client_idx]["browser"] = client_browser
             await update_status_message(session_id, context)
 
