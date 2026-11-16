@@ -81,11 +81,75 @@ class GoogleForms(BaseGameConfig):
         if not form_url.startswith("http"):
             form_url = "https://" + form_url
 
-        def generate_random_text(min_len=5, max_len=50):
-            length = random.randint(min_len, max_len)
-            return "".join(
-                random.choices(string.ascii_letters + string.digits + " ", k=length)
-            )
+        def rand_text(min_len=5, max_len=50):
+            n = random.randint(min_len, max_len)
+            return "".join(random.choices(string.ascii_letters + string.digits + " ", k=n))
+
+        async def fill_page(page):
+            # multiple choice + grid rows
+            groups = page.locator("div[role='radiogroup']")
+            for i in range(await groups.count()):
+                try:
+                    opts = groups.nth(i).locator("div[role='radio']")
+                    n = await opts.count()
+                    if n:
+                        await opts.nth(random.randrange(n)).click()
+                        await asyncio.sleep(0.05)
+                except Exception:
+                    pass
+
+            # checkboxes, at least one per question so required ones pass
+            for item in await page.locator("div[role='listitem']").all():
+                try:
+                    cbs = item.locator("div[role='checkbox']")
+                    n = await cbs.count()
+                    if not n:
+                        continue
+                    picks = [j for j in range(n) if random.random() > 0.5] or [random.randrange(n)]
+                    for j in picks:
+                        if await cbs.nth(j).get_attribute("aria-checked") == "false":
+                            await cbs.nth(j).click()
+                            await asyncio.sleep(0.05)
+                except Exception:
+                    pass
+
+            # dropdowns
+            boxes = page.locator("div[role='listbox']")
+            for i in range(await boxes.count()):
+                try:
+                    box = boxes.nth(i)
+                    await box.click()
+                    await asyncio.sleep(0.3)
+                    opts = page.locator("div[role='option'][data-value]:visible")
+                    vals = [o for o in await opts.all() if (await o.get_attribute("data-value"))]
+                    if vals:
+                        await random.choice(vals).click()
+                    else:
+                        await page.keyboard.press("Escape")
+                    await asyncio.sleep(0.3)
+                except Exception:
+                    pass
+
+            # paragraph + short answer + email fields
+            for el in await page.locator("textarea").all():
+                try:
+                    await el.fill(rand_text())
+                except Exception:
+                    pass
+            for el in await page.locator("input[type='text']:visible, input[type='email']:visible, input[type='number']:visible, input[type='url']:visible").all():
+                try:
+                    t = await el.get_attribute("type")
+                    if t == "email":
+                        v = rand_text(6, 10).replace(" ", "x").lower() + "@gmail.com"
+                    elif t == "number":
+                        v = str(random.randint(1, 100))
+                    elif t == "url":
+                        v = "https://example.com"
+                    else:
+                        v = rand_text(3, 20)
+                    await el.fill(v)
+                except Exception:
+                    pass
 
         page = None
         try:
@@ -93,54 +157,33 @@ class GoogleForms(BaseGameConfig):
             await page.goto(form_url)
             await page.wait_for_load_state("networkidle")
 
-            radio_groups = page.locator("div[role='radiogroup']")
-            count = await radio_groups.count()
-
-            for i in range(count):
-                group = radio_groups.nth(i)
-                try:
-                    options = group.locator("div.Od2TWd[data-value]")
-                    opt_count = await options.count()
-                    if opt_count > 0:
-                        rand_idx = random.randint(0, opt_count - 1)
-                        await options.nth(rand_idx).click()
-                        await asyncio.sleep(0.05)
-                except:
-                    pass
-
-            textareas = page.locator("textarea.KHxj8b")
-            txt_count = await textareas.count()
-            for i in range(txt_count):
-                try:
-                    textarea = textareas.nth(i)
-                    await textarea.fill(generate_random_text())
-                    await asyncio.sleep(0.05)
-                except:
-                    pass
-
-            checkboxes = page.locator("div[role='checkbox']")
-            cb_count = await checkboxes.count()
-            for i in range(cb_count):
-                try:
-                    cb = checkboxes.nth(i)
-                    is_checked = await cb.get_attribute("aria-checked")
-                    if is_checked == "false" and random.random() > 0.3:
-                        await cb.click()
-                        await asyncio.sleep(0.05)
-                except:
-                    pass
-
-            await asyncio.sleep(0.5)
-
-            submit_btn = page.locator("div[jsname='M2UYVd'][role='button']").first
-            if await submit_btn.count() > 0:
-                await submit_btn.click()
-
-            await asyncio.sleep(1)
-            print(f"Form submitted")
-
+            for _ in range(30):  # walk through every section
+                await fill_page(page)
+                await asyncio.sleep(0.3)
+                submit_btn = page.locator("div[jsname='M2UYVd'][role='button']").first
+                next_btn = page.locator("div[jsname='OCpkoe'][role='button']").first
+                if await submit_btn.count() and await submit_btn.is_visible():
+                    await submit_btn.click()
+                    try:
+                        await page.wait_for_url("**/formResponse**", timeout=10000)
+                        print("Form submitted")
+                    except Exception:
+                        print("Submit clicked but no confirmation page (required field missed?)")
+                    break
+                if await next_btn.count() and await next_btn.is_visible():
+                    before = await page.locator("div[role='list']").first.inner_text()
+                    await next_btn.click()
+                    await page.wait_for_load_state("networkidle")
+                    await asyncio.sleep(0.5)
+                    if "formResponse" not in page.url and await page.locator("div[role='list']").first.inner_text() == before:
+                        print("Stuck on a section, a required field probably isn't filled")
+                        break
+                    continue
+                print("No Next or Submit button found")
+                break
         except Exception as e:
             print(f"Error: {e}")
+        finally:
             if page and not page.is_closed():
                 await page.close()
 
