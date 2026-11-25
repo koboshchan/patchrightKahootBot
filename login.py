@@ -1,8 +1,18 @@
 """Log in once and save cookies for the bot.
 
-Run on your PC:  python login.py
+Setup (once):
+    mkdir -p ~/kahoot-login && cd ~/kahoot-login
+    curl -fsSLO https://raw.githubusercontent.com/koboshchan/patchrightKahootBot/main/login.py
+    python3 -m venv .venv
+    .venv/bin/pip install patchright
+    .venv/bin/python -m patchright install chromium
+
+Run:
+    cd ~/kahoot-login && .venv/bin/python login.py
+
 A browser opens with Google and Kahoot tabs. Sign into whatever you need
-(open more tabs for other sites), then press Enter here. Saves session.json; upload it to the bot with /setlogin.
+(open more tabs for other sites), then press Enter in the terminal.
+Saves session.json next to this script; upload it to the bot with /setlogin.
 """
 import asyncio
 import os

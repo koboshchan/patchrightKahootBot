@@ -463,8 +463,13 @@ async def set_login(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
     await update.message.reply_text(
         "Send your session.json file (or /cancel).\n\n"
-        f"Make one with this script on your computer:\n{LOGIN_SCRIPT_URL}\n"
-        "Run it, log into your sites, press Enter, then upload the file here."
+        f"Make one with this script on your computer:\n{LOGIN_SCRIPT_URL}\n\n"
+        "mkdir -p ~/kahoot-login && cd ~/kahoot-login\n"
+        "curl -fsSLO https://raw.githubusercontent.com/koboshchan/patchrightKahootBot/main/login.py\n"
+        "python3 -m venv .venv && .venv/bin/pip install patchright\n"
+        ".venv/bin/python -m patchright install chromium\n"
+        ".venv/bin/python login.py\n\n"
+        "Log into your sites, press Enter, then upload ~/kahoot-login/session.json here."
     )
     return UPLOADING_SESSION
 
