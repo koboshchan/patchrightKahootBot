@@ -85,7 +85,25 @@ class GoogleForms(BaseGameConfig):
             n = random.randint(min_len, max_len)
             return "".join(random.choices(string.ascii_letters + string.digits + " ", k=n))
 
+        async def click_update(page):
+            # logged-in forms pop "Saved progress" over the page; hit Update so clicks work again
+            for _ in range(3):
+                dlg = page.locator("div[role='alertdialog']:visible, div[role='dialog']:visible")
+                if not await dlg.count():
+                    return False
+                try:
+                    btn = dlg.first.get_by_text("Update", exact=True)
+                    if not await btn.count():
+                        btn = dlg.first.locator("div[role='button']:visible, button:visible").last
+                    await btn.first.click(timeout=3000)
+                    await page.wait_for_load_state("networkidle")
+                    await asyncio.sleep(0.5)
+                except Exception:
+                    await page.keyboard.press("Escape")
+            return True
+
         async def fill_page(page):
+            await click_update(page)
             # multiple choice + grid rows
             groups = page.locator("div[role='radiogroup']")
             for i in range(await groups.count()):
@@ -162,6 +180,8 @@ class GoogleForms(BaseGameConfig):
                 await asyncio.sleep(0.3)
                 submit_btn = page.locator("div[jsname='M2UYVd'][role='button']").first
                 next_btn = page.locator("div[jsname='OCpkoe'][role='button']").first
+                if await click_update(page):
+                    continue  # draft reloaded, fill this section again
                 if await submit_btn.count() and await submit_btn.is_visible():
                     await submit_btn.click()
                     try:
