@@ -183,9 +183,7 @@ class GoogleForms(BaseGameConfig):
                 break
         except Exception as e:
             print(f"Error: {e}")
-        finally:
-            if page and not page.is_closed():
-                await page.close()
+        # leave the tab open so Send Screen works; the session's 10 min auto close cleans it up
 
 
 supported_games = {
