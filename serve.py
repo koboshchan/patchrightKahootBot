@@ -107,7 +107,7 @@ async def game_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ENTERING_CUSTOM_KWARGS
     elif game_class.use_custom_run_client:
         await query.edit_message_text(
-            text=f"Selected {game_name.capitalize()}. Please enter the number of clients:"
+            text=f"Selected {game_name.capitalize()}. Please enter the number of clients (e.g. 3, or 4!2 for 4 total, 2 at a time):"
         )
         return ENTERING_CLIENTS
     else:
@@ -127,22 +127,28 @@ async def custom_kwarg_entered(update: Update, context: ContextTypes.DEFAULT_TYP
         await update.message.reply_text(text=next_karg.get("prompt", "Enter value:"))
         return ENTERING_CUSTOM_KWARGS
     else:
-        await update.message.reply_text("Please enter the number of clients:")
+        await update.message.reply_text("Please enter the number of clients (e.g. 3, or 4!2 for 4 total, 2 at a time):")
         return ENTERING_CLIENTS
 
 
 async def pin_entered(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["pin"] = update.message.text
-    await update.message.reply_text("Please enter the number of clients:")
+    await update.message.reply_text("Please enter the number of clients (e.g. 3, or 4!2 for 4 total, 2 at a time):")
     return ENTERING_CLIENTS
 
 
 async def clients_entered(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # "3" = 3 at once, "4!2" = 4 total, 2 at a time
     try:
-        num_clients = int(update.message.text)
+        total, _, par = update.message.text.strip().partition("!")
+        num_clients = int(total)
+        parallel = int(par) if par else num_clients
+        if num_clients < 1 or parallel < 1:
+            raise ValueError
     except ValueError:
-        await update.message.reply_text("Please enter a valid number.")
+        await update.message.reply_text("Please enter a number like 3, or 4!2 for 4 total, 2 at a time.")
         return ENTERING_CLIENTS
+    parallel = min(parallel, num_clients)
 
     game_choice = context.user_data["game_choice"]
     game_class = config.supported_games[game_choice]
@@ -151,7 +157,8 @@ async def clients_entered(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     session_id = f"{update.effective_chat.id}_{int(time.time())}"
     await update.message.reply_text(
-        f"Launching {num_clients} clients for {game_choice.capitalize()}..."
+        f"Launching {num_clients} clients for {game_choice.capitalize()}"
+        + (f", {parallel} at a time..." if parallel < num_clients else "...")
     )
 
     asyncio.create_task(
@@ -164,6 +171,7 @@ async def clients_entered(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context,
             custom_kwargs,
             update.effective_user.id,
+            parallel,
         )
     )
 
@@ -171,7 +179,8 @@ async def clients_entered(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def run_session(
-    session_id, game_name, pin, num_clients, chat_id, context, custom_kwargs=None, user_id=None
+    session_id, game_name, pin, num_clients, chat_id, context, custom_kwargs=None, user_id=None,
+    parallel=None,
 ):
     if custom_kwargs is None:
         custom_kwargs = {}
@@ -207,7 +216,7 @@ async def run_session(
             "num_clients": num_clients,
             "custom_kwargs": custom_kwargs,
             "clients": [
-                {"id": i, "status": "Initializing"} for i in range(num_clients)
+                {"id": i, "status": "Queued"} for i in range(num_clients)
             ],
             "start_time": time.time(),
             "chat_id": chat_id,
@@ -225,7 +234,13 @@ async def run_session(
         )
         session["message_id"] = status_msg.message_id
 
+        limit = asyncio.Semaphore(parallel or num_clients)
+
         async def run_one_client(client_idx):
+            async with limit:
+                await _run_one_client(client_idx)
+
+        async def _run_one_client(client_idx):
             session["clients"][client_idx]["status"] = "Joining"
             client_browser = ClientBrowser(browser_ctx)
             session["clients"][client_idx]["browser"] = client_browser
