@@ -178,6 +178,25 @@ class GoogleForms(BaseGameConfig):
         page = None
         try:
             page = await browser.new_page()
+
+            # the draft popup can show up at any point; auto-click Update before any action it blocks
+            async def _on_draft(dlg):
+                try:
+                    xp = page.locator("xpath=/html/body/div[3]/div/div[2]/div[3]/div/span/span")
+                    if await xp.count() and await xp.first.is_visible():
+                        await xp.first.click(timeout=3000)
+                    else:
+                        await dlg.get_by_text("Update", exact=True).first.click(timeout=3000)
+                except Exception:
+                    await page.keyboard.press("Escape")
+
+            try:
+                await page.add_locator_handler(
+                    page.locator("div[role='alertdialog'], div[role='dialog']").filter(has_text="Update"),
+                    _on_draft,
+                )
+            except Exception:
+                pass
             await page.goto(form_url)
             await page.wait_for_load_state("networkidle")
 
