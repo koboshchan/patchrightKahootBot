@@ -92,6 +92,12 @@ class GoogleForms(BaseGameConfig):
                 if not await dlg.count():
                     return False
                 try:
+                    xp = page.locator("xpath=/html/body/div[3]/div/div[2]/div[3]/div/span/span")
+                    if await xp.count() and await xp.first.is_visible():
+                        await xp.first.click(timeout=3000)
+                        await page.wait_for_load_state("networkidle")
+                        await asyncio.sleep(0.5)
+                        continue
                     btn = dlg.first.get_by_text("Update", exact=True)
                     if not await btn.count():
                         btn = dlg.first.locator("div[role='button']:visible, button:visible").last
